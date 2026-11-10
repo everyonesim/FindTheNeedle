@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>FindTheNeedle - offline</title>
+		<style>
+			html, body {
+				margin: 0;
+				padding: 0;
+				height: 100%;
+				color: #e0e0e0;
+				background-color: #0f1114;
+				font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+			}
+			main {
+				height: 100%;
+				display: flex;
+				flex-direction: column;
+				justify-content: center;
+				align-items: center;
+				text-align: center;
+				padding: 0 1.5rem;
+				box-sizing: border-box;
+			}
+			h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 0.5rem; }
+			p { font-size: 0.9rem; line-height: 1.5; color: #8b93a1; margin: 0; max-width: 30rem; }
+			button {
+				margin-top: 1.5rem;
+				padding: 0.6rem 1.4rem;
+				font: inherit;
+				font-size: 0.9rem;
+				color: #0f1114;
+				background: #cfd6e2;
+				border: 0;
+				border-radius: 0.4rem;
+				cursor: pointer;
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<h1>You are offline</h1>
+			<p>The game package has not finished downloading, so FindTheNeedle cannot start right now. Reconnect, then reload the page.</p>
+			<button onclick="location.reload()">Reload</button>
+		</main>
+	</body>
+</html>
