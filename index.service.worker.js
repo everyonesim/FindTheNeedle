@@ -11,7 +11,10 @@ const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
 /** @type {string} */
 const OFFLINE_URL = 'index.offline.html';
 /** @type {boolean} */
-const ENSURE_CROSSORIGIN_ISOLATION_HEADERS = true;
+// The export runs without thread support, so cross-origin isolation buys nothing here.
+// Forcing COEP/COOP on every response only adds a rewriting hop and stricter resource
+// loading rules, so leave the headers alone.
+const ENSURE_CROSSORIGIN_ISOLATION_HEADERS = false;
 // Only the offline fallback is precached: game code and the pack always come from the
 // network so a re-export is never served stale out of this cache.
 /** @type {string[]} */
