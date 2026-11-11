@@ -158,6 +158,7 @@ body {
 				// legitimately leave the frustum) never comes close to the limit and is untouched.
 				var SENTINEL = -12000.0;
 				var LIMIT = '1.0e4';
+				var ABSURD = '1.0e7';
 				var MAIN = /void\s+main\s*\(\s*(?:void\s*)?\)\s*\{/;
 				var UV_VAR = /(?:^|\n)[\t ]*(?:varying|out|in)\s+(?:highp\s+|mediump\s+|lowp\s+)?(vec[234])\s+(\w*uv\w*)\s*;/gi;
 
@@ -211,7 +212,7 @@ body {
 				}
 
 				function patchVertex(source) {
-					if (source.indexOf('gl_Position.w') >= 0 && source.indexOf('1.0e4') >= 0) return source;
+					if (source.indexOf('1.0e7') >= 0) return source;
 					var clean = blankComments(source);
 					var head = clean.match(MAIN);
 					if (!head) return source;
@@ -220,12 +221,15 @@ body {
 					if (close < 0) return source;
 					var uv = uvVarying(clean);
 					var tag = taggedWrite(uv);
-					// One statement, no declaration: valid in both GLSL ES 1.00 and 3.00 blocks.
+					// All in one statement, so it is valid in a GLSL ES 1.00 block as well as 3.00. The
+					// absolute bound catches NaN, infinities and absurd coordinates; the ratio bound only
+					// applies well in front of the eye, because a vertex hugging the near plane has a
+					// legitimate huge |x| / |w| ratio and must never be dropped.
 					var block = [
-						'if (!(abs(gl_Position.x) <= ' + LIMIT + ' * abs(gl_Position.w))',
-						'	|| !(abs(gl_Position.y) <= ' + LIMIT + ' * abs(gl_Position.w))',
-						'	|| !(abs(gl_Position.z) <= ' + LIMIT + ' * abs(gl_Position.w))',
-						'	|| !(abs(gl_Position.w) > 0.0)) {',
+						'if (!(abs(gl_Position.x) < ' + ABSURD + ') || !(abs(gl_Position.y) < ' + ABSURD + ')',
+						'	|| !(abs(gl_Position.z) < ' + ABSURD + ') || !(abs(gl_Position.w) < ' + ABSURD + ')',
+						'	|| (abs(gl_Position.w) > 1.0 && (abs(gl_Position.x) > ' + LIMIT + ' * abs(gl_Position.w)',
+						'		|| abs(gl_Position.y) > ' + LIMIT + ' * abs(gl_Position.w)))) {',
 						'	gl_Position = vec4(0.0, 0.0, -3.0, 1.0);',
 					];
 					if (tag) block.push('\t' + tag);
