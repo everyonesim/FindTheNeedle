@@ -1,35 +1,23 @@
-// Kill switch. This worker used to intercept every asset request; it no longer does
-// anything, and any browser still holding a registration drops it on the next update
-// check instead of keeping a middleware layer in front of the game's assets.
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => {
-	event.waitUntil(self.registration.unregister().then(() => self.clients.claim()));
-});
-
 // This service worker is required to expose an exported Godot project as a
 // Progressive Web App. It provides an offline fallback page telling the user
 // that they need an Internet connection to run the project if desired.
 // Incrementing CACHE_VERSION will kick off the install event and force
 // previously cached resources to be updated from the network.
 /** @type {string} */
-const CACHE_VERSION = 'v3-20261110';
+const CACHE_VERSION = 'split18-e825cb062b0758c3';
 /** @type {string} */
 const CACHE_PREFIX = 'FindTheNeedle-sw-cache-';
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
 /** @type {string} */
 const OFFLINE_URL = 'index.offline.html';
 /** @type {boolean} */
-// The export runs without thread support, so cross-origin isolation buys nothing here.
-// Forcing COEP/COOP on every response only adds a rewriting hop and stricter resource
-// loading rules, so leave the headers alone.
-const ENSURE_CROSSORIGIN_ISOLATION_HEADERS = false;
-// Only the offline fallback is precached: game code and the pack always come from the
-// network so a re-export is never served stale out of this cache.
+const ENSURE_CROSSORIGIN_ISOLATION_HEADERS = true;
+// Files that will be cached on load.
 /** @type {string[]} */
-const CACHED_FILES = ["index.offline.html"];
+const CACHED_FILES = ["web-browser-controls.js","split-assets.js","web-browser-controls.js","split-assets.js","web-browser-controls.js","split-assets.js","index.html","index.js","index.offline.html","index.icon.png","index.apple-touch-icon.png","index.audio.worklet.js","index.audio.position.worklet.js"];
 // Files that we might not want the user to preload, and will only be cached on first load.
 /** @type {string[]} */
-const CACHEABLE_FILES = [];
+const CACHEABLE_FILES = ["index.wasm","libterrain.web.release.wasm32.wasm"];
 const FULL_CACHE = CACHED_FILES.concat(CACHEABLE_FILES);
 
 self.addEventListener('install', (event) => {
@@ -106,11 +94,6 @@ self.addEventListener(
 	 * @param {FetchEvent} event
 	 */
 	(event) => {
-		// The multi-gigabyte pack parts stream straight to the page. Re-wrapping them here
-		// would push every byte of the download through a second stream hop.
-		if (/\.part\d+$/.test(new URL(event.request.url).pathname)) {
-			return;
-		}
 		const isNavigate = event.request.mode === 'navigate';
 		const url = event.request.url || '';
 		const referrer = event.request.referrer || '';
