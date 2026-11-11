@@ -122,7 +122,7 @@ body {
 			<div id="status-notice"></div>
 		</div>
 
-		<!-- Graphics pressure guards: keep the pixel budget and the GPU failure mode under control. -->
+		<!-- Graphics guards: fixed pixel budget, and a shader guard that drops mutated triangles. -->
 		<script>
 			(function () {
 				// Godot sizes the canvas to CSS pixels times devicePixelRatio. On a hiDPI screen that
@@ -151,34 +151,128 @@ body {
 					});
 				} catch (error) { /* keep the browser value */ }
 
-				// A reset GPU drops the WebGL context. The engine keeps drawing from buffers that no
-				// longer exist, which is what black or coloured faces stretched across the scene
-				// actually looks like. Catch it and offer a clean restart instead.
-				function showGameLost() {
-					if (document.getElementById('graphics-lost')) return;
-					var box = document.createElement('div');
-					box.id = 'graphics-lost';
-					box.setAttribute('role', 'alert');
-					box.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;'
-						+ 'align-items:center;justify-content:center;gap:0.85rem;padding:2rem;box-sizing:border-box;'
-						+ 'text-align:center;background:#0f1114;color:#e8ebf0;font-family:"Noto Sans",Arial,sans-serif;';
-					var title = document.createElement('div');
-					title.textContent = 'The graphics device reset';
-					title.style.cssText = 'font-size:1.05rem;font-weight:600;';
-					var body = document.createElement('div');
-					body.textContent = 'The browser dropped the game surface, so the scene can no longer be drawn. Reload to keep playing.';
-					body.style.cssText = 'font-size:0.9rem;line-height:1.5;color:#8b93a1;max-width:30rem;';
-					var button = document.createElement('button');
-					button.textContent = 'Reload';
-					button.style.cssText = 'margin-top:0.5rem;padding:0.6rem 1.5rem;font:inherit;font-size:0.9rem;'
-						+ 'color:#0f1114;background:#cfd6e2;border:0;border-radius:0.4rem;cursor:pointer;';
-					button.addEventListener('click', function () { location.reload(); });
-					box.appendChild(title);
-					box.appendChild(body);
-					box.appendChild(button);
-					document.body.appendChild(box);
+				// A mutated triangle shows up as a face stretched to absurd coordinates. Nothing in a
+				// sane scene puts a vertex thousands of screens outside the view, so those vertices are
+				// parked behind the eye and their triangle is tagged; every fragment of a tagged
+				// triangle is discarded instead of drawn. Real geometry (including terrain planes that
+				// legitimately leave the frustum) never comes close to the limit and is untouched.
+				var SENTINEL = -12000.0;
+				var LIMIT = '1.0e4';
+				var MAIN = /void\s+main\s*\(\s*(?:void\s*)?\)\s*\{/;
+				var UV_VAR = /(?:^|\n)[\t ]*(?:varying|out|in)\s+(?:highp\s+|mediump\s+|lowp\s+)?(vec[234])\s+(\w*uv\w*)\s*;/gi;
+
+				// Replace comment characters with spaces so every index still matches the original.
+				function blankComments(source) {
+					return source
+						.replace(/\/\*[\s\S]*?\*\//g, function (m) { return m.replace(/[^\n]/g, ' '); })
+						.replace(/\/\/[^\n]*/g, function (m) { return m.replace(/[^\n]/g, ' '); });
 				}
-				window.addEventListener('webglcontextlost', showGameLost, true);
+
+				function matchBrace(source, openIndex) {
+					var depth = 0;
+					for (var i = openIndex; i < source.length; i++) {
+						var ch = source.charAt(i);
+						if (ch === '{') depth++;
+						else if (ch === '}') {
+							depth--;
+							if (depth === 0) return i;
+						}
+					}
+					return -1;
+				}
+
+				function insertLines(source, index, block) {
+					var lineStart = source.lastIndexOf('\n', index - 1) + 1;
+					var indent = source.slice(lineStart, index).match(/^[\t ]*/)[0];
+					var lines = block.split('\n');
+					for (var i = 1; i < lines.length; i++) lines[i] = indent + lines[i];
+					return source.slice(0, index) + lines.join('\n') + source.slice(index);
+				}
+
+				function uvVarying(clean) {
+					var found = clean.match(UV_VAR) || [];
+					var best = null;
+					for (var i = 0; i < found.length; i++) {
+						var decl = found[i].match(/(vec[234])\s+(\w+)\s*;\s*$/);
+						if (!decl) continue;
+						var entry = { type: decl[1], name: decl[2] };
+						// Both stages must pick the same name, so prefer the one Godot uses for UVs.
+						if (entry.name === 'uv_interp') return entry;
+						if (!best) best = entry;
+					}
+					return best;
+				}
+
+				function taggedWrite(uv) {
+					if (!uv) return '';
+					return uv.type === 'vec2'
+						? uv.name + ' = vec2(' + SENTINEL.toFixed(1) + ');'
+						: uv.name + '.xy = vec2(' + SENTINEL.toFixed(1) + ');';
+				}
+
+				function patchVertex(source) {
+					if (source.indexOf('gl_Position.w') >= 0 && source.indexOf('1.0e4') >= 0) return source;
+					var clean = blankComments(source);
+					var head = clean.match(MAIN);
+					if (!head) return source;
+					var open = head.index + head[0].length - 1;
+					var close = matchBrace(clean, open);
+					if (close < 0) return source;
+					var uv = uvVarying(clean);
+					var tag = taggedWrite(uv);
+					// One statement, no declaration: valid in both GLSL ES 1.00 and 3.00 blocks.
+					var block = [
+						'if (!(abs(gl_Position.x) <= ' + LIMIT + ' * abs(gl_Position.w))',
+						'	|| !(abs(gl_Position.y) <= ' + LIMIT + ' * abs(gl_Position.w))',
+						'	|| !(abs(gl_Position.z) <= ' + LIMIT + ' * abs(gl_Position.w))',
+						'	|| !(abs(gl_Position.w) > 0.0)) {',
+						'	gl_Position = vec4(0.0, 0.0, -3.0, 1.0);',
+					];
+					if (tag) block.push('\t' + tag);
+					block.push('}');
+					return insertLines(source, close, block.join('\n') + '\n');
+				}
+
+				function patchFragment(source) {
+					var clean = blankComments(source);
+					var head = clean.match(MAIN);
+					if (!head) return source;
+					var uv = uvVarying(clean);
+					if (!uv) return source;
+					var open = head.index + head[0].length - 1;
+					return insertLines(source, open + 1, 'if (' + uv.name + '.x < ' + SENTINEL.toFixed(1) + ') discard;\n');
+				}
+
+				function install(Context) {
+					if (!Context || !Context.prototype || Context.prototype.__ftnGuard) return;
+					Context.prototype.__ftnGuard = true;
+					var types = typeof WeakMap === 'function' ? new WeakMap() : null;
+					if (!types) return;
+					var createShader = Context.prototype.createShader;
+					var shaderSource = Context.prototype.shaderSource;
+					Context.prototype.createShader = function (type) {
+						var shader = createShader.call(this, type);
+						try { types.set(shader, type); } catch (error) { /* ignore */ }
+						return shader;
+					};
+					Context.prototype.shaderSource = function (shader, source) {
+						var text = Array.isArray(source) ? source.join('\n') : String(source);
+						try {
+							var type = types.get(shader);
+							// Only touch a shader whose type is known: guessing would inject a discard
+							// into a vertex shader and break the compile.
+							if (type === this.VERTEX_SHADER) text = patchVertex(text);
+							else if (type === this.FRAGMENT_SHADER) text = patchFragment(text);
+							if (!window.__ftnGuardLogged && text !== (Array.isArray(source) ? source.join('\n') : String(source))) {
+								window.__ftnGuardLogged = true;
+								console.info('[findtheneedle] triangle guard active');
+							}
+						} catch (error) { /* ship the original source untouched */ }
+						return shaderSource.call(this, shader, text);
+					};
+				}
+				install(window.WebGL2RenderingContext);
+				install(window.WebGLRenderingContext);
 			})();
 		</script>
 
