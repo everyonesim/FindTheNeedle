@@ -114,7 +114,26 @@ body {
 		<script src="split-assets.js?v=e825cb062b0758c3"></script>
 		<script src="web-browser-controls.js?v=ee19df007ee198d0"></script>
 		<script src="split-assets.js?v=e825cb062b0758c3"></script>
+		<script src="pako-inflate.js"></script>
 		<script src="index.js"></script>
+		<script src="pack-mount.js"></script>
+		<script>
+			// Serve the package from compressed parts: read ranges are inflated on demand and
+			// cached in a small window instead of the whole 1.7 GB staying resident.
+			if (window.FTN_MOUNT_PACK) {
+				const ftnPreload = Engine.prototype.preloadFile;
+				Engine.prototype.preloadFile = function (file, path) {
+					if (file === 'index.pck') {
+						const engine = this;
+						return window.FTN_MOUNT_PACK(engine).catch(function (error) {
+							console.warn('[findtheneedle] compressed package unavailable, using the plain download', error);
+							return ftnPreload.call(engine, file, path);
+						});
+					}
+					return ftnPreload.call(this, file, path);
+				};
+			}
+		</script>
 		<script>
 const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":1759774166,"index.wasm":1508095},"focusCanvas":true,"gdextensionLibs":["libterrain.web.release.wasm32.wasm"],"godotPoolSize":4,"serviceWorker":"index.service.worker.js"};
 const GODOT_THREADS_ENABLED = false;
