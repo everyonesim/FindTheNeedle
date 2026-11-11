@@ -1,3 +1,11 @@
+// Kill switch. This worker used to intercept every asset request; it no longer does
+// anything, and any browser still holding a registration drops it on the next update
+// check instead of keeping a middleware layer in front of the game's assets.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => {
+	event.waitUntil(self.registration.unregister().then(() => self.clients.claim()));
+});
+
 // This service worker is required to expose an exported Godot project as a
 // Progressive Web App. It provides an offline fallback page telling the user
 // that they need an Internet connection to run the project if desired.
